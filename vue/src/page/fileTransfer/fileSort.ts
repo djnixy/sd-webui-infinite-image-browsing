@@ -20,7 +20,8 @@ export enum SortMethod {
   SIZE_ASC = 'size-asc',
   SIZE_DESC = 'size-desc',
   CREATED_TIME_ASC = 'created-time-asc',
-  CREATED_TIME_DESC = 'created-time-desc'
+  CREATED_TIME_DESC = 'created-time-desc',
+  RANDOM = 'random'
 }
 
 export const sortMethods = Object.values(SortMethod) as SortMethod[]
@@ -79,6 +80,8 @@ export const sortFiles = (files: FileList, method: SortMethod) => {
         return compareBySize(a, b)
       case SortMethod.SIZE_DESC:
         return compareBySize(b, a)
+      case SortMethod.RANDOM:
+        return Math.random() - 0.5;
       default:
         throw new Error(`Invalid sort method: ${method}`)
     }
