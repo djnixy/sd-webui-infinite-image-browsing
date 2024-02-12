@@ -155,6 +155,7 @@ export const en: IIBI18nMap = {
   sortByNameDescending: 'Name descending',
   sortBySizeAscending: 'Size ascending',
   sortBySizeDescending: 'Size descending',
+  sortByRandom: 'Random',
   inputAddressAndPressEnter: 'Input address and press Enter',
   go: 'Go',
   unknownError: 'Unknown error',
