@@ -11,6 +11,7 @@ export const sortMethodMap = (): Record<SortMethod, string> => ({
   'size-desc': t('sortBySizeDescending'),
   'created-time-asc': t('sortByCreatedDateAscending'),
   'created-time-desc': t('sortByCreatedDateDescending')
+  'random': t('sortByRandom')
 })
 export enum SortMethod {
   DATE_ASC = 'date-asc',
