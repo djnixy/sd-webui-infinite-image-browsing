@@ -1,4 +1,4 @@
-import { createReactiveQueue } from '@/util'
+import { createReactiveQueue, downloadFileInfoJSON } from '@/util'
 import { identity } from 'lodash-es'
 import { reactive, computed } from 'vue'
 import {
@@ -8,7 +8,8 @@ import {
   useFileTransfer,
   useFileItemActions,
   usePreview,
-  useEventListen
+  useEventListen,
+  useGenInfoDiff
 } from '../fileTransfer/hook'
 import { makeAsyncIterator } from 'vue3-ts-util'
 import { getImagesByTags } from '@/api/db'
@@ -25,7 +26,7 @@ export const useImageSearch = (iter: ReturnType<typeof createImageSearchIter>) =
   const deletedImagePahts = reactive(new Set<String>())
   const images = computed(() => (iter.res ?? []).filter((v) => !deletedImagePahts.has(v.fullpath)))
   const queue = createReactiveQueue()
-  const { stackViewEl, multiSelectedIdxs, stack, scroller } = useHookShareState({
+  const { stackViewEl, multiSelectedIdxs, stack, scroller, props } = useHookShareState({
     images: images as any
   }).toRefs()
   const { itemSize, gridItems, cellWidth, onScroll } = useFilesDisplay({ fetchNext: () => iter.next() })
@@ -38,7 +39,9 @@ export const useImageSearch = (iter: ReturnType<typeof createImageSearchIter>) =
     onContextMenuClick,
     onFileItemClick
   } = useFileItemActions({ openNext: identity })
-  const { previewIdx, previewing, onPreviewVisibleChange, previewImgMove, canPreview } = usePreview()
+  const { previewIdx, previewing, onPreviewVisibleChange, previewImgMove, canPreview } = usePreview({
+    loadNext: () => iter.next()
+  })
 
   const onContextMenuClickU: typeof onContextMenuClick = async (e, file, idx) => {
     stack.value = [{ curr: '', files: images.value! }] // hack，for delete multi files
@@ -49,6 +52,16 @@ export const useImageSearch = (iter: ReturnType<typeof createImageSearchIter>) =
     paths.forEach((v) => deletedImagePahts.add(v))
   })
 
+  const saveLoadedFileAsJson = () => {
+    downloadFileInfoJSON(images.value)
+  }
+
+  const saveAllFileAsJson = async () => {
+    while (!iter.load) {
+      await iter.next()
+    }
+    saveLoadedFileAsJson()
+  }
 
   return {
     images,
@@ -74,6 +87,10 @@ export const useImageSearch = (iter: ReturnType<typeof createImageSearchIter>) =
     onFileDragStart,
     onFileDragEnd,
     cellWidth,
-    onScroll
+    onScroll,
+    saveLoadedFileAsJson,
+    saveAllFileAsJson,
+    props,
+    ...useGenInfoDiff()
   }
 }

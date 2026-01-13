@@ -4,7 +4,7 @@ import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 import { useGlobalStore, type TabPane } from '@/store/useGlobalStore'
 import { defineAsyncComponent, watch, ref, nextTick } from 'vue'
-import { globalEvents, asyncCheck } from '@/util'
+import { globalEvents, asyncCheck, useGlobalEventListen } from '@/util'
 import { debounce, uniqueId } from 'lodash-es'
 import edgeTrigger from './edgeTrigger.vue'
 import { t } from '@/i18n'
@@ -21,10 +21,17 @@ const compMap: Record<TabPane['type'], ReturnType<typeof defineAsyncComponent>> 
   'tag-search-matched-image-grid': defineAsyncComponent(
     () => import('@/page/TagSearch/MatchedImageGrid.vue')
   ),
+  'topic-search-matched-image-grid': defineAsyncComponent(
+    () => import('@/page/TopicSearch/MatchedImageGrid.vue')
+  ),
   'tag-search': defineAsyncComponent(() => import('@/page/TagSearch/TagSearch.vue')),
   'fuzzy-search': defineAsyncComponent(() => import('@/page/TagSearch/SubstrSearch.vue')),
+  'topic-search': defineAsyncComponent(() => import('@/page/TopicSearch/TopicSearch.vue')),
   'img-sli': defineAsyncComponent(() => import('@/page/ImgSli/ImgSliPagePane.vue')),
-  'batch-download': defineAsyncComponent(() => import('@/page/batchDownload/batchDownload.vue'))
+  'batch-download': defineAsyncComponent(() => import('@/page/batchDownload/batchDownload.vue')),
+  'grid-view': defineAsyncComponent(() => import('@/page/gridView/gridView.vue')),
+  'workspace-snapshot': defineAsyncComponent(() => import('@/page/WorkspeaceSnapshot/index.vue')),
+  'random-image': defineAsyncComponent(() => import('@/page/randomImage/randomImage.vue')),
 }
 const onEdit = (idx: number, targetKey: any, action: string) => {
   const tab = global.tabList[idx]
@@ -48,6 +55,8 @@ const onEdit = (idx: number, targetKey: any, action: string) => {
     }
   }
 }
+
+useGlobalEventListen('closeTabPane', (tabIdx, key) => onEdit(tabIdx, key, 'del'))
 const container = ref<HTMLDivElement>()
 watch(
   () => global.tabList,
@@ -88,12 +97,13 @@ tryOnMounted(async () => {
   }
   par.onUiTabChange(() => {
     const el = par.get_uiCurrentTabContent()
-    if (el?.id.includes("infinite-image-browsing")) {
+    if (el?.id.includes('infinite-image-browsing')) {
       emitReturnToIIB()
     }
   })
 })
 watch(useDocumentVisibility(), v => v && emitReturnToIIB())
+
 </script>
 <template>
   <div ref="container">
@@ -102,7 +112,7 @@ watch(useDocumentVisibility(), v => v && emitReturnToIIB())
         <edge-trigger :tabIdx="tabIdx">
           <a-tabs type="editable-card" v-model:activeKey="tab.key" @edit="(key:any, act:any) => onEdit(tabIdx, key, act)">
             <a-tab-pane v-for="(pane, paneIdx) in tab.panes" :key="pane.key" :tab="pane.name" class="pane">
-              <component :is="compMap[pane.type]" :tabIdx="tabIdx" :paneIdx="paneIdx" v-bind="pane" />
+              <component :is="compMap[pane.type]" :tabIdx="tabIdx" :paneKey="pane.key" :paneIdx="paneIdx" v-bind="pane" />
             </a-tab-pane>
           </a-tabs>
         </edge-trigger>

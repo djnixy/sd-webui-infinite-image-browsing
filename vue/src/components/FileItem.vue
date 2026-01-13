@@ -3,32 +3,63 @@ import { FileOutlined, FolderOpenOutlined, EllipsisOutlined, HeartOutlined, Hear
 import { useGlobalStore } from '@/store/useGlobalStore'
 import { fallbackImage, ok } from 'vue3-ts-util'
 import type { FileNodeInfo } from '@/api/files'
-import { isImageFile, isVideoFile } from '@/util'
-import { toImageThumbnailUrl, toRawFileUrl } from '@/util/file'
+import { isImageFile, isVideoFile, isAudioFile } from '@/util'
+import { toImageThumbnailUrl, toVideoCoverUrl, toRawFileUrl } from '@/util/file'
 import type { MenuInfo } from 'ant-design-vue/lib/menu/src/interface'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ContextMenu from './ContextMenu.vue'
+import ChangeIndicator from './ChangeIndicator.vue'
 import { useTagStore } from '@/store/useTagStore'
-import { CloseCircleOutlined, StarFilled, StarOutlined, PlayCircleFilled } from '@/icon'
+import { CloseCircleOutlined, StarFilled, StarOutlined } from '@/icon'
 import { Tag } from '@/api/db'
-import { openVideoModal } from './functionalCallableComp'
+import { openVideoModal, openAudioModal } from './functionalCallableComp'
+import type { GenDiffInfo } from '@/api/files'
+import { play } from '@/icon'
+import { Top4MediaInfo } from '@/api'
+import { watch } from 'vue'
+import { debounce } from 'lodash-es'
+
+import { closeImageFullscreenPreview } from '@/util/imagePreviewOperation'
 
 const global = useGlobalStore()
 const tagStore = useTagStore()
+
 const props = withDefaults(
   defineProps<{
-    file: FileNodeInfo
+    file: FileNodeInfo,
     idx: number
     selected?: boolean
     showMenuIdx?: number
     cellWidth: number
     fullScreenPreviewImageUrl?: string
     enableRightClickMenu?: boolean,
-    enableCloseIcon?: boolean
+    enableCloseIcon?: boolean,
     isSelectedMutilFiles?: boolean
+    genInfo?: string
+    enableChangeIndicator?: boolean
+    extraTags?: Tag[]
+    coverFiles?: Top4MediaInfo[]
+    getGenDiff?: (ownGenInfo: any, idx: any, increment: any, ownFile: FileNodeInfo) => GenDiffInfo,
+    getGenDiffWatchDep?: (idx: number) => any
   }>(),
-  { selected: false, enableRightClickMenu: true, enableCloseIcon: false }
+  {
+    selected: false, enableRightClickMenu: true, enableCloseIcon: false
+  }
 )
+
+
+const genDiffToPrevious = ref<GenDiffInfo>()
+const genDiffToNext = ref<GenDiffInfo>()
+const calcGenInfoDiff = debounce(() => {
+  const { getGenDiff, file, idx } = props
+  if (!getGenDiff) return 
+  genDiffToNext.value = getGenDiff(file.gen_info_obj, idx, 1, file)
+  genDiffToPrevious.value = getGenDiff(file.gen_info_obj, idx, -1, file)
+}, 200 + 100 * Math.random())
+
+watch(() => props.getGenDiffWatchDep?.(props.idx), () => {
+  calcGenInfoDiff()
+}, { immediate: true, deep: true })
 
 const emit = defineEmits<{
   'update:showMenuIdx': [v: number],
@@ -37,7 +68,8 @@ const emit = defineEmits<{
   'dragend': [event: DragEvent, idx: number],
   'previewVisibleChange': [value: boolean, last: boolean],
   'contextMenuClick': [e: MenuInfo, file: FileNodeInfo, idx: number],
-  'close-icon-click': []
+  'close-icon-click': [],
+  'tiktokView': [file: FileNodeInfo, idx: number]
 }>()
 
 const customTags = computed(() => {
@@ -62,15 +94,64 @@ const taggleLikeTag = () => {
   emit('contextMenuClick', { key: `toggle-tag-${likeTag.value.id}` } as MenuInfo, props.file, props.idx)
 }
 
+const minShowDetailWidth = 160
+
+// 处理文件点击事件
+const handleFileClick = (event: MouseEvent) => {
+  // 检查magic switch是否开启且是图片文件（视频有自己的处理逻辑）
+  if (global.magicSwitchTiktokView && props.file.type === 'file' && isImageFile(props.file.name)) {
+    // 阻止事件传播，防止 a-image 组件也触发预览
+    event.stopPropagation()
+    event.preventDefault()
+    // 直接触发TikTok视图
+    emit('tiktokView', props.file, props.idx)
+    setTimeout(() => {
+      closeImageFullscreenPreview()
+    }, 500);
+  } else {
+    // 正常触发文件点击事件
+    emit('fileItemClick', event, props.file, props.idx)
+  }
+}
+
+// 处理视频点击事件
+const handleVideoClick = () => {
+  if (global.magicSwitchTiktokView) {
+    // 直接触发TikTok视图
+    emit('tiktokView', props.file, props.idx)
+  } else {
+    // 正常打开视频模态框
+    openVideoModal(
+      props.file, 
+      (id) => emit('contextMenuClick', { key: `toggle-tag-${id}` } as any, props.file, props.idx),
+      () => emit('tiktokView', props.file, props.idx)
+    )
+  }
+}
+
+// 处理音频点击事件
+const handleAudioClick = () => {
+  if (global.magicSwitchTiktokView) {
+    // 直接触发TikTok视图
+    emit('tiktokView', props.file, props.idx)
+  } else {
+    // 正常打开音频模态框
+    openAudioModal(
+      props.file, 
+      (id) => emit('contextMenuClick', { key: `toggle-tag-${id}` } as any, props.file, props.idx),
+      () => emit('tiktokView', props.file, props.idx)
+    )
+  }
+}
 </script>
 <template>
   <a-dropdown :trigger="['contextmenu']" :visible="!global.longPressOpenContextMenu ? undefined : typeof idx === 'number' && showMenuIdx === idx
     " @update:visible="(v: boolean) => typeof idx === 'number' && emit('update:showMenuIdx', v ? idx : -1)">
     <li class="file file-item-trigger grid" :class="{
-      clickable: file.type === 'dir',
-      selected
-    }" :data-idx="idx" :key="file.name" draggable="true" @dragstart="emit('dragstart', $event, idx)"
-      @dragend="emit('dragend', $event, idx)" @click.capture="emit('fileItemClick', $event, file, idx)">
+    clickable: file.type === 'dir',
+    selected
+  }" :data-idx="idx" :key="file.name" draggable="true" @dragstart="emit('dragstart', $event, idx)"
+      @dragend="emit('dragend', $event, idx)" @click.capture="handleFileClick($event)">
 
       <div>
         <div class="close-icon" v-if="enableCloseIcon" @click="emit('close-icon-click')">
@@ -105,37 +186,60 @@ const taggleLikeTag = () => {
           这么复杂是因为再全屏查看时可能因为直接删除导致fullpath变化，然后整个预览直接退出-->
         <div :key="file.fullpath" :class="`idx-${idx} item-content`" v-if="isImageFile(file.name)">
 
+          <!-- change indicators -->
+          <ChangeIndicator v-if="enableChangeIndicator && genDiffToNext && genDiffToPrevious"
+            :gen-diff-to-next="genDiffToNext" :gen-diff-to-previous="genDiffToPrevious" />
+          <!-- change indicators END -->
+
           <a-image :src="imageSrc" :fallback="fallbackImage" :preview="{
-            src: fullScreenPreviewImageUrl,
-            onVisibleChange: (v: boolean, lv: boolean) => emit('previewVisibleChange', v, lv)
-          }" />
-          <div class="tags-container" v-if="customTags && cellWidth > 128">
-            <a-tag v-for="tag in customTags" :key="tag.id" :color="tagStore.getColor(tag.name)">
+    src: fullScreenPreviewImageUrl,
+    onVisibleChange: (v: boolean, lv: boolean) => emit('previewVisibleChange', v, lv)
+  }" />
+          <div class="tags-container" v-if="customTags && cellWidth > minShowDetailWidth">
+            <a-tag v-for="tag in extraTags ?? customTags" :key="tag.id" :color="tagStore.getColor(tag)">
               {{ tag.name }}
             </a-tag>
           </div>
         </div>
-        <div :class="`idx-${idx} item-content video`" v-else-if="isVideoFile(file.name)" @click="openVideoModal(file)">
+        <div :class="`idx-${idx} item-content video`" :url="toVideoCoverUrl(file)"
+          :style="{ 'background-image': `url('${file.cover_url ?? toVideoCoverUrl(file)}')` }" v-else-if="isVideoFile(file.name)"
+          @click="handleVideoClick">
+
           <div class="play-icon">
-            <PlayCircleFilled />
+            <img :src="play" style="width: 40px;height: 40px;">
           </div>
-          <div class="tags-container" v-if="customTags && cellWidth > 128">
-            <a-tag v-for="tag in customTags" :key="tag.id" :color="tagStore.getColor(tag.name)">
+          <div class="tags-container" v-if="customTags && cellWidth > minShowDetailWidth">
+            <a-tag v-for="tag in customTags" :key="tag.id" :color="tagStore.getColor(tag)">
+              {{ tag.name }}
+            </a-tag>
+          </div>
+        </div>
+        <div :class="`idx-${idx} item-content audio`" v-else-if="isAudioFile(file.name)"
+          @click="handleAudioClick">
+          <div class="audio-icon">🎵</div>
+          <div class="tags-container" v-if="customTags && cellWidth > minShowDetailWidth">
+            <a-tag v-for="tag in customTags" :key="tag.id" :color="tagStore.getColor(tag)">
               {{ tag.name }}
             </a-tag>
           </div>
         </div>
         <div v-else class="preview-icon-wrap">
           <file-outlined class="icon center" v-if="file.type === 'file'" />
+          <div v-else-if="coverFiles?.length && cellWidth > 160" class="dir-cover-container">
+            <img class="dir-cover-item"
+              :src="item.media_type === 'image' ? toImageThumbnailUrl(item) : toVideoCoverUrl(item)"
+              v-for="item in coverFiles" :key="item.fullpath">
+          </div>
+
           <folder-open-outlined class="icon center" v-else />
         </div>
-        <div class="profile" v-if="cellWidth > 128">
-          <div class="name line-clamp-1">
+        <div class="profile" v-if="cellWidth > minShowDetailWidth">
+          <div class="name line-clamp-1" :title="file.name">
             {{ file.name }}
           </div>
           <div class="basic-info">
-            <div>
-              {{ file.size }}
+            <div style="margin-right: 4px;">
+              {{ file.type }} {{ file.size }}
             </div>
             <div>
               {{ file.date }}
@@ -167,15 +271,34 @@ const taggleLikeTag = () => {
     overflow: hidden;
     width: v-bind('$props.cellWidth + "px"');
     height: v-bind('$props.cellWidth + "px"');
+    background-size: cover;
+    background-position: center;
     cursor: pointer;
+  }
+
+  &.audio {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 8px;
+    overflow: hidden;
+    width: v-bind('$props.cellWidth + "px"');
+    height: v-bind('$props.cellWidth + "px"');
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    
+    .audio-icon {
+      font-size: 48px;
+    }
   }
 
   .play-icon {
     position: absolute;
     top: 50%;
     left: 50%;
-    font-size: 3em;
     transform: translate(-50%, -50%);
+    border-radius: 100%;
+    display: flex;
   }
 
   .tags-container {
@@ -281,6 +404,10 @@ const taggleLikeTag = () => {
           flex-direction: row;
           margin: 0;
           font-size: 0.7em;
+          * {
+            white-space: nowrap;
+            overflow: hidden;
+          }
         }
       }
 
@@ -292,7 +419,8 @@ const taggleLikeTag = () => {
         overflow: hidden;
       }
 
-      img,
+      img:not(.dir-cover-item),
+      .dir-cover-container,
       .preview-icon-wrap>[role='img'] {
         height: v-bind('$props.cellWidth + "px"');
         width: v-bind('$props.cellWidth + "px"');
@@ -321,6 +449,22 @@ const taggleLikeTag = () => {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
+  }
+
+  .dir-cover-container {
+    top: 0;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 4px;
+
+    &>img {
+      width: calc(50% - 8px);
+      height: calc(50% - 8px);
+      margin: 4px;
+      object-fit: cover;
+      border-radius: 8px;
+      overflow: hidden
+    }
   }
 }
 </style>

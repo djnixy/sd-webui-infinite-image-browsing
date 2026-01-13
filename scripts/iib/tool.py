@@ -1,9 +1,9 @@
+import ctypes
 from datetime import datetime
 import os
 import platform
 import re
 import tempfile
-import imghdr
 import subprocess
 from typing import Dict, List
 import sys
@@ -12,6 +12,8 @@ import piexif.helper
 import json
 import zipfile
 from PIL import Image
+import shutil
+# import magic
 
 sd_img_dirs = [
     "outdir_txt2img_samples",
@@ -27,7 +29,10 @@ sd_img_dirs = [
 
 is_dev = os.getenv("APP_ENV") == "dev"
 is_nuitka = "__compiled__" in globals()
-cwd = os.getcwd() if is_nuitka else os.path.normpath(os.path.join(__file__, "../../../"))
+is_pyinstaller_bundle = bool(getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'))
+is_exe_ver = is_nuitka or is_pyinstaller_bundle
+
+cwd = os.getcwd() if is_exe_ver else os.path.normpath(os.path.join(__file__, "../../../"))
 is_win = platform.system().lower().find("windows") != -1
 
 
@@ -41,6 +46,34 @@ except Exception as e:
     print(e)
 
 
+
+def backup_db_file(db_file_path):
+
+    if not os.path.exists(db_file_path):
+        return
+    max_backup_count = int(os.environ.get('IIB_DB_FILE_BACKUP_MAX', '8'))
+    if max_backup_count < 1:
+        return
+    backup_folder = os.path.join(cwd,'iib_db_backup')
+    current_time = datetime.now()
+    timestamp = current_time.strftime('%Y-%m-%d %H-%M-%S')
+    backup_filename = f"iib.db_{timestamp}"
+    os.makedirs(backup_folder, exist_ok=True)
+    backup_filepath = os.path.join(backup_folder, backup_filename)
+    shutil.copy2(db_file_path, backup_filepath)
+    backup_files = os.listdir(backup_folder)
+    pattern = r"iib\.db_(\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2})"
+    backup_files_with_time = [(f, re.search(pattern, f).group(1)) for f in backup_files if re.search(pattern, f)]
+    sorted_backup_files = sorted(backup_files_with_time, key=lambda x: datetime.strptime(x[1], '%Y-%m-%d %H-%M-%S'))
+
+    if len(sorted_backup_files) > max_backup_count:
+        files_to_remove_count = len(sorted_backup_files) - max_backup_count
+        for i in range(files_to_remove_count):
+            file_to_remove = os.path.join(backup_folder, sorted_backup_files[i][0])
+            os.remove(file_to_remove)
+            
+    print(f"\033[92mIIB Database file has been successfully backed up to the backup folder.\033[0m")
+
 def get_sd_webui_conf(**kwargs):
     try:
         from modules.shared import opts
@@ -50,7 +83,7 @@ def get_sd_webui_conf(**kwargs):
         pass
     try:
         sd_conf_path = kwargs.get("sd_webui_config")
-        with open(sd_conf_path, "r") as f:
+        with codecs.open(sd_conf_path, "r", "utf-8") as f:
             obj = json.loads(f.read())
             if kwargs.get("sd_webui_path_relative_to_config"):
                 for dir in sd_img_dirs:
@@ -137,10 +170,12 @@ def human_readable_size(size_bytes):
 
 def get_windows_drives():
     drives = []
-    for drive in range(ord("A"), ord("Z") + 1):
-        drive_name = chr(drive) + ":/"
-        if os.path.exists(drive_name):
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    for letter in range(65, 91):
+        if bitmask & 1:
+            drive_name = chr(letter) + ":/"
             drives.append(drive_name)
+        bitmask >>= 1
     return drives
 
 
@@ -164,9 +199,51 @@ def convert_to_bytes(file_size_str):
         return int(size)
     else:
         raise ValueError(f"Invalid file size string '{file_size_str}'")
+    
 
+def is_video_simple(filepath):
+    try:        
+        import filetype
+        kind = filetype.guess(filepath)
+        # print(f"File type guessed: {kind}")
+        return kind and kind.mime.startswith('video/')
+    except:
+        # 如果 filetype 模块不可用，使用简单的文件扩展名检查
+        return isinstance(get_video_type(filepath), str)
 
-def is_valid_image_path(path):
+def get_video_type(file_path):
+    video_extensions = ['.mp4', '.m4v', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.ts', '.webm']
+    file_extension = file_path[file_path.rfind('.'):].lower()
+
+    if file_extension in video_extensions:
+        return file_extension[1:] 
+    else:
+        return None
+    
+def is_image_file(filename: str) -> bool:
+    if not isinstance(filename, str):
+        return False
+    
+    extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.avif', '.jpe']
+    extension = filename.split('.')[-1].lower()
+    return f".{extension}" in extensions
+
+def is_video_file(filename: str) -> bool:
+    return isinstance(get_video_type(filename), str) and is_video_simple(filename)
+
+def get_audio_type(file_path):
+    audio_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac', '.wma']
+    file_extension = file_path[file_path.rfind('.'):].lower()
+
+    if file_extension in audio_extensions:
+        return file_extension[1:] 
+    else:
+        return None
+
+def is_audio_file(filename: str) -> bool:
+    return isinstance(get_audio_type(filename), str)
+
+def is_valid_media_path(path):
     """
     判断给定的路径是否是图像文件
     """
@@ -175,13 +252,12 @@ def is_valid_image_path(path):
         return False
     if not os.path.isfile(abs_path):  # 判断是否是文件
         return False
-    if not imghdr.what(abs_path):  # 判断是否是图像文件
-        return False
-    return True
+    return is_image_file(abs_path) or is_video_file(abs_path) or is_audio_file(abs_path)
 
+def is_media_file(file_path):
+    return is_image_file(file_path) or is_video_file(file_path) or is_audio_file(file_path)
 
-
-def create_zip_file(file_paths: List[str], zip_file_name: str):
+def create_zip_file(file_paths: List[str], zip_file_name: str, compress = False):
     """
     将文件打包成一个压缩包
 
@@ -192,7 +268,7 @@ def create_zip_file(file_paths: List[str], zip_file_name: str):
     Returns:
         无返回值
     """
-    with zipfile.ZipFile(zip_file_name, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+    with zipfile.ZipFile(zip_file_name, 'w', zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED) as zip_file:
         for file_path in file_paths:
             if os.path.isfile(file_path):
                 zip_file.write(file_path, os.path.basename(file_path))
@@ -230,7 +306,11 @@ def get_temp_path():
     return temp_path
 
 
-temp_path = get_temp_path()
+_temp_path = get_temp_path()
+
+
+def get_cache_dir():
+    return os.getenv("IIB_CACHE_DIR") or _temp_path
 
 def get_secret_key_required():
     try:
@@ -285,6 +365,30 @@ def get_modified_date(folder_path: str):
 def get_created_date(folder_path: str):
     return get_formatted_date(os.path.getctime(folder_path))
 
+is_st_birthtime_available = True
+
+def get_created_date_by_stat(stat: os.stat_result):
+    global is_st_birthtime_available
+    try:
+        if is_st_birthtime_available:
+            return get_formatted_date(stat.st_birthtime)
+        else:
+            return get_formatted_date(stat.st_ctime)
+    except Exception as e:
+        is_st_birthtime_available = False
+        return get_formatted_date(stat.st_ctime)
+    
+def birthtime_sort_key_fn(x):
+    stat = x.stat()
+    global is_st_birthtime_available
+    try:
+        if is_st_birthtime_available and hasattr(stat, "st_birthtime"):
+            return stat.st_birthtime
+        else:
+            return stat.st_ctime
+    except:
+        is_st_birthtime_available = False
+        return stat.st_ctime
 
 def unique_by(seq, key_func=lambda x: x):
     seen = set()
@@ -298,6 +402,14 @@ def find(lst, comparator):
 def findIndex(lst, comparator):
     return next((i for i, item in enumerate(lst) if comparator(item)), -1)
 
+def unquote(text):
+    if len(text) == 0 or text[0] != '"' or text[-1] != '"':
+        return text
+
+    try:
+        return json.loads(text)
+    except Exception:
+        return text
 
 def get_img_geninfo_txt_path(path: str):
     txt_path = re.sub(r"\.\w+$", ".txt", path)
@@ -305,20 +417,45 @@ def get_img_geninfo_txt_path(path: str):
         return txt_path
 
 def is_img_created_by_comfyui(img: Image):
-    return img.info.get('prompt') and img.info.get('workflow')
+    if img.format == "PNG":
+        prompt = img.info.get('prompt') or img.info.get('parameters')
+        return prompt and (img.info.get('workflow') or ("class_type" in prompt)) # ermanitu
+    elif img.format == "WEBP":
+        exif = img.info.get("exif")
+        split = [x.decode("utf-8", errors="ignore") for x in exif.split(b"\x00")]
+        workflow_str = find(split, lambda x: x.lower().startswith("workflow:"))
+        prompt_str = find(split, lambda x: x.lower().startswith("prompt:"))
+        if workflow_str and prompt_str:
+            workflow = json.loads(workflow_str.split(":", 1)[1])
+            prompt = json.loads(prompt_str.split(":", 1)[1])
+            return (
+                workflow
+                and prompt
+                and any("class_type" in x.keys() for x in prompt.values())
+            )
+        else:
+            return False
+    else:
+        return False  # unsupported format
 
 def is_img_created_by_comfyui_with_webui_gen_info(img: Image):
-    return img.info.get('parameters')
+    return is_img_created_by_comfyui(img) and img.info.get('parameters')
 
 def get_comfyui_exif_data(img: Image):
-    prompt = img.info.get('prompt')
+    if img.format == "PNG":
+        prompt = img.info.get('prompt')
+    elif img.format == "WEBP":
+        exif = img.info.get("exif")
+        split = [x.decode("utf-8", errors="ignore") for x in exif.split(b"\x00")]
+        prompt_str = find(split, lambda x: x.lower().startswith("prompt:"))
+        if prompt_str:
+            prompt = prompt_str.split(":", 1)[1] if prompt_str else None
     if not prompt:
         return {}
     meta_key = '3'
     data: Dict[str, any] = json.loads(prompt)
-    for i in range(3, 32):
+    for i in data.keys():
         try:
-            i = str(i)
             if data[i]["class_type"].startswith("KSampler"):
                 meta_key = i
                 break
@@ -326,14 +463,36 @@ def get_comfyui_exif_data(img: Image):
             pass
     meta = {}
     KSampler_entry = data[meta_key]["inputs"]
+    #print(KSampler_entry) # for testing
+
+    # As a workaround to bypass parsing errors in the parser.
+    # https://github.com/jiw0220/stable-diffusion-image-metadata/blob/00b8d42d4d1a536862bba0b07c332bdebb2a0ce5/src/index.ts#L130
+    meta["Steps"] = KSampler_entry.get("steps", "Unknown")
     meta["Sampler"] = KSampler_entry["sampler_name"]
-    meta["Model"] = data[KSampler_entry["model"][0]]["inputs"]["ckpt_name"]
+    meta["Model"] = data[KSampler_entry["model"][0]]["inputs"].get("ckpt_name")
+    meta["Source Identifier"] = "ComfyUI"
     def get_text_from_clip(idx: str) :
-        text = data[idx]["inputs"]["text"]
-        if isinstance(text, list): # type:CLIPTextEncode (NSP) mode:Wildcards
-            text = data[text[0]]["inputs"]["text"]
-        return text.strip()
-    pos_prompt = get_text_from_clip(KSampler_entry["positive"][0])
+        try:
+            inputs = data[idx]["inputs"]
+            if "text" in inputs:
+                text = inputs["text"]
+            elif "t5xxl" in inputs:
+                text = inputs["t5xxl"]
+            else:
+                return ""
+            if isinstance(text, list): # type:CLIPTextEncode (NSP) mode:Wildcards
+                text = data[text[0]]["inputs"]["text"]
+            return text.strip()
+        except Exception as e:
+            print(e)
+            return ""   
+    
+    in_node = data[str(KSampler_entry["positive"][0])]
+    if in_node["class_type"] != "FluxGuidance":
+        pos_prompt = get_text_from_clip(KSampler_entry["positive"][0])
+    else:
+        pos_prompt = get_text_from_clip(in_node["inputs"]["conditioning"][0])
+
     neg_prompt = get_text_from_clip(KSampler_entry["negative"][0])
     pos_prompt_arr = unique_by(parse_prompt(pos_prompt)["pos_prompt"])
     return {
@@ -363,7 +522,6 @@ def read_sd_webui_gen_info_from_image(image: Image, path="") -> str:
     """
     items = image.info or {}
     geninfo = items.pop("parameters", None)
-
     if "exif" in items:
         exif = piexif.load(items["exif"])
         exif_comment = (exif or {}).get("Exif", {}).get(piexif.ExifIFD.UserComment, b"")
@@ -392,10 +550,11 @@ def read_sd_webui_gen_info_from_image(image: Image, path="") -> str:
 re_param_code = r'\s*([\w ]+):\s*("(?:\\"[^,]|\\"|\\|[^\"])+"|[^,]*)(?:,|$)'
 re_param = re.compile(re_param_code)
 re_imagesize = re.compile(r"^(\d+)x(\d+)$")
-re_lora_prompt = re.compile("<lora:([\w_\s.]+):([\d.]+)>", re.IGNORECASE)
+re_lora_prompt = re.compile(r"<lora:([\w_\s.]+)(?::([\d.]+))*>", re.IGNORECASE)
 re_lora_extract = re.compile(r"([\w_\s.]+)(?:\d+)?")
-re_lyco_prompt = re.compile("<lyco:([\w_\s.]+):([\d.]+)>", re.IGNORECASE)
+re_lyco_prompt = re.compile(r"<lyco:([\w_\s.]+):([\d.]+)>", re.IGNORECASE)
 re_parens = re.compile(r"[\\/\[\](){}]+")
+re_lora_white_symbol= re.compile(r">\s+")
 
 
 def lora_extract(lora: str):
@@ -407,9 +566,10 @@ def lora_extract(lora: str):
 
 
 def parse_prompt(x: str):
-    x = re.sub(
-        re_parens, "", x.replace("，", ",").replace("-", " ").replace("_", " ")
-    )
+    x = re.sub(r'\sBREAK\s', ' , BREAK , ', x)
+    x = re.sub(re_lora_white_symbol, "> , ", x)
+    x = x.replace("，", ",").replace("-", " ").replace("_", " ")
+    x = re.sub(re_parens, "", x)
     tag_list = [x.strip() for x in x.split(",")]
     res = []
     lora_list = []
@@ -421,8 +581,10 @@ def parse_prompt(x: str):
         if idx_colon != -1:
             if re.search(re_lora_prompt, tag):
                 lora_res = re.search(re_lora_prompt, tag)
+                # 修复 group(2) 可能为 None 的情况
+                lora_value = float(lora_res.group(2)) if lora_res.group(2) is not None else 1.0
                 lora_list.append(
-                    {"name": lora_res.group(1), "value": float(lora_res.group(2))}
+                    {"name": lora_res.group(1), "value": lora_value}
                 )
             elif re.search(re_lyco_prompt, tag):
                 lyco_res = re.search(re_lyco_prompt, tag)
@@ -445,6 +607,7 @@ def parse_generation_parameters(x: str):
     done_with_prompt = False
     if not x:
         return {"meta": {}, "pos_prompt": [], "lora": [], "lyco": []}
+    
     *lines, lastline = x.strip().split("\n")
     if len(re_param.findall(lastline)) < 3:
         lines.append(lastline)
@@ -466,13 +629,22 @@ def parse_generation_parameters(x: str):
             prompt += ("" if prompt == "" else "\n") + line
 
     for k, v in re_param.findall(lastline):
-        v = v[1:-1] if v[0] == '"' and v[-1] == '"' else v
-        m = re_imagesize.match(v)
-        if m is not None:
-            res[k + "-1"] = m.group(1)
-            res[k + "-2"] = m.group(2)
-        else:
-            res[k] = v
+        try:
+            if len(v) == 0:
+                res[k] = v
+                continue
+            if v[0] == '"' and v[-1] == '"':
+                v = unquote(v)
+
+            m = re_imagesize.match(v)
+            if m is not None:
+                res[f"{k}-1"] = m.group(1)
+                res[f"{k}-2"] = m.group(2)
+            else:
+                res[k] = v
+        except Exception:
+            print(f"Error parsing \"{k}: {v}\"")
+            
     prompt_parse_res = parse_prompt(prompt)
     lora = prompt_parse_res["lora"]
     for k in res:
@@ -521,3 +693,113 @@ def open_folder(folder_path, file_path=None):
             subprocess.run(["xdg-open", folder])
 
 
+def open_file_with_default_app(file_path):
+    system = platform.system()
+    if system == 'Darwin':  # macOS
+        subprocess.call(['open', file_path])
+    elif system == 'Windows':  # Windows
+        subprocess.call(file_path, shell=True)
+    elif system == 'Linux':  # Linux
+        subprocess.call(['xdg-open', file_path])
+    else:
+        raise OSError(f'Unsupported operating system: {system}')
+    
+def omit(d, keys):
+    return {k: v for k, v in d.items() if k not in keys}
+
+
+def get_current_commit_hash():
+    try:
+        result = subprocess.run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=cwd)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        else:
+            return None
+    except Exception:
+        return None
+
+def get_current_tag():
+    try:
+        result = subprocess.run(['git', 'describe', '--tags', '--abbrev=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=cwd)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        else:
+            return None
+    except Exception:
+        return None
+    
+    
+def replace_punctuation(input_string):
+    return input_string.replace(',', ' ').replace('\n', ' ')
+
+
+def case_insensitive_get(d, key, default=None):
+    for k, v in d.items():
+        if k.lower() == key.lower():
+            return v
+    return default
+
+def build_sd_webui_style_img_gen_info(prompt, negative_prompt = 'None', meta = {}):
+    res = f"{prompt}\nNegative prompt: {negative_prompt}\n"
+    for k, v in meta.items():
+        res += f"{k}: {v}, "
+    return res
+
+def map_dict_keys(value_dict, map_dict=None):
+    if map_dict is None:
+        return value_dict
+    else:
+        return {map_dict.get(key, key): value for key, value in value_dict.items()}
+    
+
+def get_file_info_by_path(fullpath: str, is_under_scanned_path = True):
+    stat = os.stat(fullpath)
+    date = get_formatted_date(stat.st_mtime)
+    name = os.path.basename(fullpath)
+    created_time = get_created_date_by_stat(stat)
+    if os.path.isfile(fullpath):
+        bytes = stat.st_size
+        size = human_readable_size(bytes)
+        return {
+                "type": "file",
+                "date": date,
+                "size": size,
+                "name": name,
+                "bytes": bytes,
+                "created_time": created_time,
+                "fullpath": fullpath,
+                "is_under_scanned_path": is_under_scanned_path,
+            }
+        
+    elif os.path.isdir(fullpath):
+        return {
+            "type": "dir",
+            "date": date,
+            "created_time": created_time,
+            "size": "-",
+            "name": name,
+            "is_under_scanned_path": is_under_scanned_path,
+            "fullpath": fullpath,
+        }
+    return {}
+
+
+def get_frame_at_second(video_path, second):
+    import av
+    with av.open(video_path) as container:
+        time_base = container.streams.video[0].time_base
+        frame_container_pts = round( second / time_base)
+        
+        container.seek(frame_container_pts, backward=True, stream=container.streams.video[0])
+        frame = next(container.decode(video=0))
+        return frame
+    
+def get_data_file_path(filename):
+    if hasattr(sys, '_MEIPASS'):
+        # Running in a PyInstaller bundle
+        base_path = os.path.join(sys._MEIPASS)
+    else:
+        # Running in a normal Python environment
+        base_path = os.path.join(os.path.dirname(__file__))
+    
+    return os.path.normpath(os.path.join(base_path, "../../", filename))

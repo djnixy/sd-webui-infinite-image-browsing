@@ -1,4 +1,3 @@
-
 *.log
 __pycache__
 iib.db
@@ -7,7 +6,7 @@ launch.sh
 conf.json
 iib.db-journal
 .env
-standalone.cmd
+standalone*
 .vscode
 build/**/*
 dist/**/*
@@ -15,3 +14,12 @@ dist/**/*
 out/**/*
 venv/**/*
 zip_temp/*.zip
+iib_db_backup
+db_migrate_temp.db
+plugins/*
+!plugins/.gitkeep
+test_data/*
+.DS_Store
+iib_output
+iib.db-shm
+iib.db-wal

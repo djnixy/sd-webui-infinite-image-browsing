@@ -5,12 +5,15 @@ import '@zanllp/vue-virtual-scroller/dist/vue-virtual-scroller.css'
 import { RecycleScroller } from '@zanllp/vue-virtual-scroller'
 import { toRawFileUrl } from '@/util/file'
 import { getImagesByTags, type MatchImageByTagsReq } from '@/api/db'
-import { nextTick, watch } from 'vue'
+import { nextTick, watch, ref } from 'vue'
 import { copy2clipboardI18n } from '@/util'
 import fullScreenContextMenu from '@/page/fileTransfer/fullScreenContextMenu.vue'
 import { LeftCircleOutlined, RightCircleOutlined } from '@/icon'
 import { useImageSearch, createImageSearchIter } from './hook'
 import { openRebuildImageIndexModal } from '@/components/functionalCallableComp'
+import { useGlobalStore } from '@/store/useGlobalStore'
+import { useKeepMultiSelect } from '../fileTransfer/hook'
+import { openTiktokViewWithFiles } from '@/util/tiktokHelper'
 
 const props = defineProps<{
   tabIdx: number
@@ -19,7 +22,14 @@ const props = defineProps<{
   id: string
 }>()
 
-const iter = createImageSearchIter(cursor => getImagesByTags(props.selectedTagIds, cursor))
+
+// 添加随机排序状态
+const randomSort = ref(false)
+
+// 创建搜索迭代器，根据随机排序状态决定参数
+const iter = createImageSearchIter(cursor => {
+  return getImagesByTags({...props.selectedTagIds, random_sort: randomSort.value}, cursor)
+})
 const {
   queue,
   images,
@@ -43,6 +53,13 @@ const {
   onFileDragEnd,
   cellWidth,
   onScroll,
+  saveAllFileAsJson,
+  props: propsUpstream,
+  saveLoadedFileAsJson,
+  changeIndchecked,
+  seedChangeChecked,
+  getGenDiff,
+  getGenDiffWatchDep
 } = useImageSearch(iter)
 
 watch(
@@ -55,9 +72,45 @@ watch(
   },
   { immediate: true }
 )
+
+// 监听随机排序状态变化
+watch(
+  randomSort,
+  async () => {
+    await iter.reset()
+    await nextTick()
+    scroller.value?.scrollToItem(0)
+    onScroll() // 重新获取
+  }
+)
+
+
+watch(
+  () => props,
+  async (v) => {
+    propsUpstream.value = v
+  },
+  { deep: true, immediate: true}
+)
+
+
+const g = useGlobalStore()
+const { onClearAllSelected, onSelectAll, onReverseSelect } = useKeepMultiSelect()
+
+// TikTok View 按钮点击处理
+const onTiktokViewClick = () => {
+  if (images.value.length === 0) {
+    return
+  }
+  // 从第一张图片开始播放
+  openTiktokViewWithFiles(images.value, 0)
+}
 </script>
 <template>
   <div class="container" ref="stackViewEl">
+    
+    <MultiSelectKeep :show="!!multiSelectedIdxs.length || g.keepMultiSelect" 
+      @clear-all-selected="onClearAllSelected" @select-all="onSelectAll" @reverse-select="onReverseSelect"/>
     <ASpin size="large" :spinning="!queue.isIdle">
       <AModal v-model:visible="showGenInfo" width="70vw" mask-closable @ok="showGenInfo = false">
         <template #cancelText />
@@ -77,6 +130,13 @@ watch(
           </div>
         </ASkeleton>
       </AModal>
+      <div class="action-bar">
+        <a-switch v-model:checked="randomSort" :checked-children="$t('randomSort')" :un-checked-children="$t('sortByDate')" />
+        <a-button @click="onTiktokViewClick" :disabled="!images?.length">{{ $t('tiktokView') }}</a-button>
+        <a-button @click="saveLoadedFileAsJson">{{ $t('saveLoadedImageAsJson') }}</a-button>
+        <a-button @click="saveAllFileAsJson">{{ $t('saveAllAsJson') }}</a-button>
+
+      </div>
       <RecycleScroller
         ref="scroller"
         class="file-list"
@@ -88,6 +148,9 @@ watch(
         :gridItems="gridItems"
         @scroll="onScroll"
       >
+        <template #after>
+          <div style="padding: 16px 0 512px;"/>
+        </template>
         <template v-slot="{ item: file, index: idx }">
           <file-item-cell
             :idx="idx"
@@ -97,6 +160,7 @@ watch(
             @dragstart="onFileDragStart"
             @dragend="onFileDragEnd"
             @file-item-click="onFileItemClick"
+            @tiktok-view="(_file, idx) => openTiktokViewWithFiles(images, idx)"
             :full-screen-preview-image-url="
               images[previewIdx] ? toRawFileUrl(images[previewIdx]) : ''
             "
@@ -104,6 +168,10 @@ watch(
             @context-menu-click="onContextMenuClickU"
             @preview-visible-change="onPreviewVisibleChange"
             :is-selected-mutil-files="multiSelectedIdxs.length > 1"
+            :enable-change-indicator="changeIndchecked"
+            :seed-change-checked="seedChangeChecked"
+            :get-gen-diff="getGenDiff"
+            :get-gen-diff-watch-dep="getGenDiffWatchDep"
           />
         </template>
       </RecycleScroller>
@@ -133,42 +201,25 @@ watch(
   </div>
 </template>
 <style scoped lang="scss">
-.preview-switch {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 11111;
-  pointer-events: none;
-
-  & > * {
-    color: white;
-    margin: 16px;
-    font-size: 4em;
-    pointer-events: all;
-    cursor: pointer;
-
-    &.disable {
-      opacity: 0;
-      pointer-events: none;
-      cursor: none;
-    }
-  }
-}
-
 .container {
   background: var(--zp-secondary-background);
+  position: relative;
+  .action-bar {
+    display: flex;
+    align-items: center;
+    user-select: none;
+    gap: 4px; 
+    padding: 4px;
+    &>* {
+      flex-wrap: wrap;
+    }
+  }
 
   .file-list {
     list-style: none;
     padding: 8px;
-    height: 100%;
     overflow: auto;
-    height: var(--pane-max-height);
+    height: calc(var(--pane-max-height) - 40px);
     width: 100%;
   }
   .no-res-hint {

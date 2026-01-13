@@ -1,16 +1,20 @@
 import type { GlobalConf } from '@/api'
-import type { MatchImageByTagsReq } from '@/api/db'
+import type { ExtraPathType, MatchImageByTagsReq, Tag } from '@/api/db'
 import { FileNodeInfo } from '@/api/files'
 import { i18n, t } from '@/i18n'
 import { getPreferredLang } from '@/i18n'
 import { SortMethod } from '@/page/fileTransfer/fileSort'
+import { Props as FileTransferProps } from '@/page/fileTransfer/hooks'
 import type { getQuickMovePaths } from '@/page/taskRecord/autoComplete'
 import { type Dict, type ReturnTypeAsync } from '@/util'
-import { usePreferredDark } from '@vueuse/core'
-import { cloneDeep, uniqueId } from 'lodash-es'
+import { AnyFn, usePreferredDark } from '@vueuse/core'
+import { cloneDeep, uniqueId, last } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { VNode, computed, onMounted, reactive, toRaw, watch } from 'vue'
 import { ref } from 'vue'
+import { WithRequired } from 'vue3-ts-util'
+import * as Path from '../util/path'
+import { prefix } from '@/util/const'
 
 interface TabPaneBase {
   name: string | VNode
@@ -19,14 +23,79 @@ interface TabPaneBase {
 }
 
 interface OtherTabPane extends TabPaneBase {
-  type: 'empty' | 'global-setting' | 'tag-search' |  'batch-download'
+  type: 'global-setting' | 'tag-search' |  'batch-download' | 'workspace-snapshot' | 'random-image' | 'topic-search'
 }
-// logDetailId
+
+export interface EmptyStartTabPane extends TabPaneBase  {
+  type: 'empty' 
+  popAddPathModal?: {
+    path: string
+    type: ExtraPathType
+  }
+}
+
+export type GridViewFileTag = WithRequired<Partial<Tag>, 'name'>;
+
+export interface GridViewFile extends FileNodeInfo {
+  /**
+   * Tags for displaying the file. The 'name' property is required,
+   * while the other properties are optional.
+   */
+  tags?: GridViewFileTag[];
+}
+
+/**
+ * A tab pane that displays files in a grid view.
+ */
+interface GridViewTabPane extends TabPaneBase {
+  type: 'grid-view'
+  /**
+   * Indicates whether the files in the grid view can be deleted.
+   */
+  removable?: boolean
+  /**
+   * Indicates whether files can be dragged and dropped from other pages into the grid view.
+   */
+  allowDragAndDrop?: boolean,
+  files: GridViewFile[]
+}
+
+
+export interface GridViewFile extends FileNodeInfo {
+  /**
+   * Tags for displaying the file. The 'name' property is required,
+   * while the other properties are optional.
+   */
+  tags?: GridViewFileTag[];
+}
+
+/**
+ * A tab pane that displays files in a grid view.
+ */
+interface GridViewTabPane extends TabPaneBase {
+  type: 'grid-view'
+  /**
+   * Indicates whether the files in the grid view can be deleted.
+   */
+  removable?: boolean
+  /**
+   * Indicates whether files can be dragged and dropped from other pages into the grid view.
+   */
+  allowDragAndDrop?: boolean,
+  files: GridViewFile[]
+}
 
 interface TagSearchMatchedImageGridTabPane extends TabPaneBase {
   type: 'tag-search-matched-image-grid'
   selectedTagIds: MatchImageByTagsReq
   id: string
+}
+
+interface TopicSearchMatchedImageGridTabPane extends TabPaneBase {
+  type: 'topic-search-matched-image-grid'
+  id: string
+  title: string
+  paths: string[]
 }
 export interface ImgSliTabPane extends TabPaneBase {
   type: 'img-sli'
@@ -37,7 +106,7 @@ export interface ImgSliTabPane extends TabPaneBase {
 export interface FileTransferTabPane extends TabPaneBase {
   type: 'local'
   path?: string
-  walkModePath?: string
+  mode?: FileTransferProps['mode']
   stackKey?: string
 }
 
@@ -51,7 +120,16 @@ export interface FuzzySearchTabPane extends TabPaneBase {
   searchScope?: string
 }
 
-export type TabPane = FileTransferTabPane | OtherTabPane | TagSearchMatchedImageGridTabPane | ImgSliTabPane | TagSearchTabPane | FuzzySearchTabPane
+export type TabPane =
+  | EmptyStartTabPane
+  | FileTransferTabPane
+  | OtherTabPane
+  | TagSearchMatchedImageGridTabPane
+  | TopicSearchMatchedImageGridTabPane
+  | ImgSliTabPane
+  | TagSearchTabPane
+  | FuzzySearchTabPane
+  | GridViewTabPane
 
 /**
  * This interface represents a tab, which contains an array of panes, an ID, and a key
@@ -71,7 +149,9 @@ export interface Tab {
   key: string
 }
 
-export type Shortcut = Record<`toggle_tag_${string}` | 'delete' | 'download', string | undefined> 
+export type Shortcut = Record<`toggle_tag_${string}` | 'delete' | 'download' | `copy_to_${string}`| `move_to_${string}`, string | undefined> 
+
+export type DefaultInitinalPage = `workspace_snapshot_${string}` | 'empty' | 'last-workspace-state'
 
 export const copyPane = (pane: TabPane) => {
   return cloneDeep({
@@ -80,25 +160,87 @@ export const copyPane = (pane: TabPane) => {
   })
 }
 
-export const copyTab = (tab: Tab) => {
+export const copyTab = (tab: Tab): Tab => {
   return {
     ...tab,
     panes: tab.panes.map(copyPane)
   }
 }
 
+export const copyTabFilterWorkspaceSnapShot = (tab: Tab): Tab => {
+  if (!tab.panes.some(v => v.type === 'workspace-snapshot')) {
+    return copyTab(tab)
+  }
+  const newPanes = tab.panes.filter(v => v.type !== 'workspace-snapshot').map(copyPane)
+  return {
+    ...tab,
+    panes: newPanes,
+    key: last(newPanes)?.key ?? ''
+  }
+}
+
+
 export type ActionConfirmRequired = 'deleteOneOnly'
 
+export const presistKeys = [
+  'defaultChangeIndchecked',
+  'defaultSeedChangeChecked',
+  'darkModeControl',
+  'dontShowAgainNewImgOpts',
+  'defaultSortingMethod',
+  'defaultGridCellWidth',
+  'dontShowAgain',
+  'lang',
+  'enableThumbnail',
+  'tabListHistoryRecord',
+  'recent',
+  'gridThumbnailResolution',
+  'longPressOpenContextMenu',
+  'onlyFoldersAndImages',
+  'fileTypeFilter',
+  'shortcut',
+  'ignoredConfirmActions',
+  'previewBgOpacity',
+  'defaultInitinalPage',
+  'autoRefreshWalkMode',
+  'autoRefreshWalkModePosLimit',
+  'autoRefreshNormalFixedMode',
+  'showCommaInInfoPanel',
+  'batchDownloadCompress',
+  'batchDownloadPackOnly',
+  'magicSwitchTiktokView',
+  'showRandomImageInStartup',
+  'showTiktokNavigator'
+]
+
+function cellWidthMap(x: number): number {
+  if (x < 768) {
+    return 176;
+  } else {
+    const y = 160 + Math.floor((x - 768) / 128) * 16;
+    return Math.min(y, 256);
+  }
+}
+
 export const useGlobalStore = defineStore(
-  'useGlobalStore',
+  prefix + 'useGlobalStore',
   () => {
     const conf = ref<GlobalConf>()
     const quickMovePaths = ref([] as ReturnTypeAsync<typeof getQuickMovePaths>)
-    
+
     const enableThumbnail = ref(true)
     const gridThumbnailResolution = ref(512)
     const defaultSortingMethod = ref(SortMethod.CREATED_TIME_DESC)
     const defaultGridCellWidth = ref(256)
+
+    try {
+      if (typeof parent !== 'undefined' && parent.window) {
+        defaultGridCellWidth.value = cellWidthMap(parent.window.innerHeight)
+      }
+    } catch (error) {
+      console.error(error)
+    }
+    
     const darkModeControl = ref<'light' | 'dark' | 'auto'>('auto')
 
     const createEmptyPane = (): TabPane => ({
@@ -112,7 +254,7 @@ export const useGlobalStore = defineStore(
       tabList.value.push({ panes: [emptyPane], key: emptyPane.key, id: uniqueId() })
     })
     const dragingTab = ref<{ tabIdx: number; paneIdx: number }>()
-    const recent = ref(new Array<{ path: string; key: string }>())
+    const recent = ref(new Array<{ path: string; key: string, mode: FileTransferTabPane['mode'] }>())
     const time = Date.now()
     const tabListHistoryRecord = ref<{ time: number; tabs: Tab[] }[]>() // [curr,last]
     const saveRecord = () => {
@@ -158,7 +300,6 @@ export const useGlobalStore = defineStore(
       }
     }
 
-
     const lang = ref(getPreferredLang())
     watch(lang, (v) => (i18n.global.locale.value = v as any))
 
@@ -169,13 +310,21 @@ export const useGlobalStore = defineStore(
       download: ''
     })
 
+    const extraPathAliasMap = ref({} as Dict<string>)
     const pathAliasMap = computed((): Dict<string> => {
-      const keys = ['outdir_extras_samples','outdir_save','outdir_txt2img_samples',
-      'outdir_img2img_samples','outdir_img2img_grids','outdir_txt2img_grids']
-      const res = quickMovePaths.value.filter((v) => keys.includes(v.key)).map(v => [v.zh, v.dir])
-      return Object.fromEntries(res)
+      const keys = [
+        'outdir_extras_samples',
+        'outdir_save',
+        'outdir_txt2img_samples',
+        'outdir_img2img_samples',
+        'outdir_img2img_grids',
+        'outdir_txt2img_grids'
+      ]
+      const res = quickMovePaths.value.filter((v) => keys.includes(v.key)).map((v) => [v.zh, v.dir])
+      return {...Object.fromEntries(res), ...extraPathAliasMap.value}
     })
 
+    const pageFuncExportMap = new Map<string, Dict<AnyFn>>()
     const ignoredConfirmActions = reactive<Record<ActionConfirmRequired, boolean>>({ deleteOneOnly: false })
 
     const dark = usePreferredDark()
@@ -191,11 +340,38 @@ export const useGlobalStore = defineStore(
       const isDark = darkModeControl.value === 'auto' ? (dark.value || getParDark()) : (darkModeControl.value === 'dark')
       return isDark ? 'dark' : 'light'
     })
+
+    // 简化路径
+    const getShortPath = (loc: string) => {
+      try {
+        loc = loc.trim()
+        const map = pathAliasMap.value
+        const np = Path.normalize(loc)
+        const replacedPaths = [] as string[]
+        for (const [k, v] of Object.entries(map)) {
+          if (k && v) {
+            if (loc === v || np === v) return k
+            replacedPaths.push(np.replace(v, '$' + k))
+          }
+        }
+        return replacedPaths.sort((a, b) => a.length - b.length)?.[0] ?? loc
+      } catch (error) {
+        console.error(error)
+        return loc
+      }
+    }
+    const previewBgOpacity = ref(0.6)
+    const magicSwitchTiktokView = ref(false)
+    const showRandomImageInStartup = ref(true)
+    const showTiktokNavigator = ref(false)
     return {
       computedTheme,
+      showTiktokNavigator,
       darkModeControl,
       defaultSortingMethod,
       defaultGridCellWidth,
+      defaultChangeIndchecked: ref(true),
+      defaultSeedChangeChecked: ref(false),
       pathAliasMap,
       createEmptyPane,
       lang,
@@ -210,33 +386,33 @@ export const useGlobalStore = defineStore(
       gridThumbnailResolution,
       longPressOpenContextMenu,
       openTagSearchMatchedImageGridInRight,
-      onlyFoldersAndImages: ref(true),
+      onlyFoldersAndImages: ref(true), // 保留用于向后兼容
+      fileTypeFilter: ref<('image' | 'video' | 'audio' | 'all')[]>(['image', 'video', 'audio']), // 新的多选过滤
+      keepMultiSelect: ref(false),
       fullscreenPreviewInitialUrl: ref(''),
       shortcut,
+      pageFuncExportMap,
       dontShowAgain: ref(false),
       dontShowAgainNewImgOpts: ref(false),
-      ignoredConfirmActions
+      ignoredConfirmActions,
+      getShortPath,
+      extraPathAliasMap,
+      previewBgOpacity,
+      defaultInitinalPage: ref<DefaultInitinalPage>('empty'),
+      autoRefreshWalkMode: ref(true),
+      autoRefreshWalkModePosLimit: ref(128),
+      autoRefreshNormalFixedMode: ref(true),
+      showCommaInInfoPanel: ref(false),
+      batchDownloadCompress: ref(false),
+      batchDownloadPackOnly: ref(false),
+      magicSwitchTiktokView,
+      showRandomImageInStartup
     }
   },
   {
     persist: {
       // debug: true,
-      paths: [
-        'darkModeControl',
-        'dontShowAgainNewImgOpts',
-        'defaultSortingMethod',
-        'defaultGridCellWidth',
-        'dontShowAgain',
-        'lang',
-        'enableThumbnail',
-        'tabListHistoryRecord',
-        'recent',
-        'gridThumbnailResolution',
-        'longPressOpenContextMenu',
-        'onlyFoldersAndImages',
-        'shortcut',
-        'ignoredConfirmActions'
-      ]
+      paths: presistKeys
     }
   }
 )

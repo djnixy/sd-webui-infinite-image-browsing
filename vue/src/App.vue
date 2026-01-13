@@ -1,18 +1,74 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
-import { getGlobalSetting } from './api'
-import { useGlobalStore } from './store/useGlobalStore'
+import { getGlobalSetting, setAppFeSetting } from './api'
+import { useGlobalStore, presistKeys } from './store/useGlobalStore'
+import { useWorkspeaceSnapshot } from './store/useWorkspeaceSnapshot'
 import { getQuickMovePaths } from '@/page/taskRecord/autoComplete'
 import SplitViewTab from '@/page/SplitViewTab/SplitViewTab.vue'
-import { createReactiveQueue, globalEvents, useGlobalEventListen } from './util'
+import { Dict, createReactiveQueue, globalEvents, useGlobalEventListen } from './util'
 import { resolveQueryActions } from './queryActions'
 import { refreshTauriConf, tauriConf } from './util/tauriAppConf'
 import { openModal } from './taurilaunchModal'
 import { isTauri } from './util/env'
 import { delay } from 'vue3-ts-util'
+import { exportFn } from './defineExportFunc'
+import { debounce, once, cloneDeep } from 'lodash-es'
+import { message } from 'ant-design-vue'
+import { t } from './i18n'
 
 const globalStore = useGlobalStore()
+const wsStore = useWorkspeaceSnapshot()
 const queue = createReactiveQueue()
+
+const presistKeysFiltered = presistKeys.filter(v => !['tabListHistoryRecord', 'recent'].includes(v))
+
+let lastConf = null as any
+const watchGlobalSettingChange = once(async () => {
+  globalStore.$subscribe((debounce(async () => {
+    if (globalStore.conf?.is_readonly === true) {
+      return
+    }
+    const conf = {} as Dict
+    presistKeysFiltered.forEach((key) => {
+      conf[key] = cloneDeep((globalStore as any)[key])
+    })
+    if (JSON.stringify(conf) === JSON.stringify(lastConf)) {
+      return
+    }
+    console.log('save global setting', conf)
+    await setAppFeSetting('global', conf)
+    lastConf = cloneDeep(conf)
+  }, 500)))
+
+
+})
+
+const restoreWorkspaceSnapshot = once( async () => {
+  await delay(100)
+  const initPage = globalStore.defaultInitinalPage
+  if (initPage === 'empty') {
+    return
+  }
+  if (initPage === 'last-workspace-state') {
+    const last = globalStore.tabListHistoryRecord?.[1]
+    if (!last?.tabs) {
+      return
+    }
+    globalStore.tabList = cloneDeep(last.tabs)
+    message.success(t('restoreLastWorkspaceStateSuccess'))
+  } else {
+    const id = initPage.split('_')?.[2]
+    const shot = wsStore.snapshots.find(v => v.id === id)
+    if (!shot?.tabs) {
+      return
+    }
+    globalStore.tabList = cloneDeep(shot.tabs)
+    message.success(t('restoreWorkspaceSnapshotSuccess'))
+  }
+
+})
+
+
 
 useGlobalEventListen('updateGlobalSetting', async () => {
   await refreshTauriConf()
@@ -21,8 +77,26 @@ useGlobalEventListen('updateGlobalSetting', async () => {
   globalStore.conf = resp
   const r = await getQuickMovePaths(resp)
   globalStore.quickMovePaths = r.filter((v) => v?.dir?.trim?.())
+
+  const restoreFeGlobalSetting = globalStore?.conf?.app_fe_setting?.global
+  if (restoreFeGlobalSetting) {
+    console.log('restoreFeGlobalSetting', restoreFeGlobalSetting)
+    lastConf = cloneDeep(restoreFeGlobalSetting)
+    presistKeysFiltered.forEach((key) => {
+      const v = restoreFeGlobalSetting[key]
+      if (v !== undefined) {
+        (globalStore as any)[key] = v
+      }
+    })
+  }
+  watchGlobalSettingChange()
+  restoreWorkspaceSnapshot()
+  exportFn(globalStore)
   resolveQueryActions(globalStore)
+  // globalEvents.emit('updateGlobalSettingDone')
 })
+
+
 
 useGlobalEventListen('returnToIIB', async () => {
   const conf = globalStore.conf
@@ -63,12 +137,16 @@ watch(
   { immediate: true }
 )
 
+watch(() => globalStore.previewBgOpacity, (v) => {
+  document.documentElement.style.setProperty('--iib-preview-mask-bg', `rgba(0, 0, 0, ${v})`)
+}, { immediate: true })
 
 onMounted(async () => {
   if (isTauri) {
     openModal()
   }
   globalEvents.emit('updateGlobalSetting')
+
 })
 </script>
 

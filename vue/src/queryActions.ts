@@ -1,5 +1,5 @@
 import type { FileTransferTabPane, useGlobalStore } from './store/useGlobalStore'
-import { Dict, removeQueryParams, switch2IBB } from './util'
+import { Dict, removeQueryParams, switch2IIB } from './util'
 import { uniqueId } from 'lodash-es'
 
 export const resolveQueryActions = async (g: ReturnType<typeof useGlobalStore>) => {
@@ -20,17 +20,18 @@ export const resolveQueryActions = async (g: ReturnType<typeof useGlobalStore>) 
         path = map[path]
       }
       const tab = g.tabList[0]
+      const mode = params.get('mode') as FileTransferTabPane['mode']
       const pane: FileTransferTabPane = {
         type: 'local',
         path,
         key: uniqueId(),
         name: '',
-        walkModePath: params.get('walk') ? path : undefined
+        mode: (['scanned', 'walk', 'scanned-fixed'] as const).includes(mode || 'scanned') ? mode : 'scanned'
       }
       tab.panes.unshift(pane)
       tab.key = pane.key
-      switch2IBB()
-      removeQueryParams(['action', 'path', 'walk'])
+      switch2IIB()
+      removeQueryParams(['action', 'path', 'mode'])
       break
     }
   }

@@ -34,7 +34,7 @@ watch(() => [g.enableThumbnail, g.gridThumbnailResolution], debounce(async () =>
 </script>
 <template>
   <a-form-item :label="t('defaultGridCellWidth')">
-    <NumInput :min="64" :max="1024" :step="32" v-model="g.defaultGridCellWidth" />
+    <NumInput :min="64" :max="1024" :step="16" v-model="g.defaultGridCellWidth" />
   </a-form-item>
   <a-form-item :label="t('useThumbnailPreview')">
     <a-switch v-model:checked="g.enableThumbnail" />
@@ -46,6 +46,15 @@ watch(() => [g.enableThumbnail, g.gridThumbnailResolution], debounce(async () =>
     <div>
       <img :width="g.defaultGridCellWidth" :height="g.defaultGridCellWidth" :src="g.enableThumbnail ? thuImg : sampleImg">
     </div>
+  </a-form-item>
+  <a-form-item :label="t('defaultShowChangeIndicators')">
+    <a-switch v-model:checked="g.defaultChangeIndchecked" />
+  </a-form-item>
+  <a-form-item v-if="g.defaultChangeIndchecked" :label="t('defaultSeedAsChange')">
+    <a-switch v-model:checked="g.defaultSeedChangeChecked" />
+  </a-form-item>
+  <a-form-item :label="t('previewMaskBackgroundOpacity')">
+    <NumInput :min="0" :max="1" :step="0.05" v-model="g.previewBgOpacity" />
   </a-form-item>
 </template>
 <style lang="scss" scoped></style>

@@ -1,16 +1,11 @@
-
-
+> 🌐 在线体验： http://39.105.110.128:0721   ， 这是我一个空闲的2c2g3m的云主机没有cdn
+> 
 # Stable-Diffusion-WebUI无边图像浏览
 
-> 百度云部分已独立，如果你有需要请[点此单独安装](https://github.com/zanllp/sd-webui-baidu-netdisk)
 
 [查看近期更新](https://github.com/zanllp/sd-webui-infinite-image-browsing/wiki/Change-log)
 
-<p style="text-align:center;margin:0 32px">不仅仅是图像浏览器，更是一个强大的图像管理器。精确的图像搜索配合多选操作进行筛选/归档/打包，成倍提高效率。更是支持以独立模式运行，无需SD-Webui</p>
-
-
-
-https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b890b-7be8-4816-abba-f3ad340a2232
+[安装/运行](#安装运行)
 
 
 ## 主要特性
@@ -19,6 +14,8 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 - 存在缓存的情况下后，图像可以在几毫秒内显示。
 - 默认使用缩略图显示图像，默认大小为512像素，您可以在全局设置页中调整缩略图分辨率。
 - 你还可以控制网格图像的宽度，允许以64px到1024px的宽度范围进行显示
+- 支持通过`--generate_video_cover`和`--generate_image_cache`来预先生成缩略图和视频封面，以提高性能。
+- 支持通过`IIB_CACHE_DIR`环境变量来指定缓存目录。
 
 ### 🔍 图像搜索和收藏
 - 将会把Prompt、Model、Lora等信息转成标签，将根据使用频率排序以供进行精确的搜索。
@@ -39,19 +36,24 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 - 您可以将其作为 SD-webui 的扩展安装。
 - 您可以使用 Python 独立运行它。
 - 还提供桌面应用程序版本。
+- 支持多种流行的AI软件
 
 ### 🚶‍♀️ Walk模式
 - 自动加载下一个文件夹 `(类似于 os.walk)`，可让您无需分页浏览所有图像。
 - 已测试可正常处理超过 27,000 个文件。
+- 当存在文件夹的情况下你可以通过右上角的walk按钮从其他模式切换到walk模式，它会将所有的文件夹打平，避免来回进出文件夹的繁琐操作。
 
 ### 🌳 基于文件树结构的预览和文件操作
 - 支持基于文件树结构的预览。
 - 支持自动刷新。
 - 支持基本文件操作以及多选删除/移动/复制，新建文件夹等。
 - 按住 Ctrl、Shift 或 Cmd 键可选择多个项目。
+  - 支持多选的操作有：删除、移动、复制、打包下载、添加标签、移除标签，移动到其他文件夹，复制到其他文件夹，拖拽
+  - 你可以通过右下角的保持多选按钮来保持多选的状态，对选中的文件集合可以很方便的进行多次操作
 
 ### 🆚 图像对比 (类似ImgSli)
 - 提供两张图片的并排比较
+- 同时提供图像生成信息的比较
 
 ### 🌐 多语言支持
 - 目前支持简体中文/繁体中文/英文/德语。
@@ -60,7 +62,7 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 
 ### 🔐 隐私和安全
 - 支持自定义secret key来进行身份验证
-- 支持配置对文件系统的访问控制，默认将在服务允许公开访问时启用
+- 支持配置对文件系统的访问控制，默认将在服务允许公开访问时启用(仅限作为sd-webui的拓展时)
 - 支持自定义访问控制允许的路径。
 - 支持控制访问权限。你可以让IIB以只读模式运行
 - [点击这里查看详情](.env.example)
@@ -76,10 +78,13 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 如果您喜欢这个项目并且觉得它对您有帮助，请考虑给我点个⭐️。这将对我持续开发和维护这个项目非常重要。如果您有任何建议或者想法，请随时在issue中提出，我会尽快回复。再次感谢您的支持！
 
 
+[在微信上赞助我](.github/wechat_funding.jpg)
+
 <a href='https://ko-fi.com/zanllp' target='_blank'><img height='35' style='border:0px;height:46px;' src='https://az743702.vo.msecnd.net/cdn/kofi3.png?v=0' border='0' alt='Buy Me a Coffee at ko-fi.com' />
 
 
 [视频演示可以在Bilibili上观看](https://space.bilibili.com/27227392/channel/series)
+
 # 安装/运行
 
 ## 作为SD-webui的扩展程序:
@@ -92,13 +97,20 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 ## 作为使用Python运行的独立程序（不需要SD-webui）:
 请参考[Can the extension function without the web UI?](https://github.com/zanllp/sd-webui-infinite-image-browsing/issues/47)
 
-如果需要查看ComfyUI生成的图片相关，请先参考 https://github.com/zanllp/sd-webui-infinite-image-browsing/issues/202
+如果需要查看ComfyUI/Fooocus/NovelAI生成的图片相关，请先参考 https://github.com/zanllp/sd-webui-infinite-image-browsing/issues/202#issuecomment-1655764627
 
 如果你需要dockerfile 参考  https://github.com/zanllp/sd-webui-infinite-image-browsing/discussions/366
 
 ## 作为桌面应用程序（不需要SD-webui和Python）:
+exe版本同样支持ComfyUI/Fooocus/NovelAI
 
-从仓库页面右侧的`releases`部分下载并安装程序。如果提升检测到病毒忽略即可这是误报。
+从仓库页面右侧的`releases`部分下载并安装程序。如果提示检测到病毒忽略即可这是误报。在windows下的编译有两个版本, pyinstaller版本拥有比较低的误报率。
+
+如果你需要自行编译请参考 https://github.com/zanllp/sd-webui-infinite-image-browsing/blob/main/.github/workflows/tauri_app_build.yml
+## 作为库使用
+
+使用iframe接入IIB，将IIB作为你应用的文件浏览器使用。 参考 https://github.com/zanllp/sd-webui-infinite-image-browsing/blob/main/vue/usage.md
+
 # 预览
 
 <img width="1920" alt="image" src="https://user-images.githubusercontent.com/25872019/230064374-47ba209e-562b-47b8-a2ce-d867e3afe204.png">
@@ -113,6 +125,9 @@ https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/807b8
 ## 图像比较
 
 ![ezgif com-video-to-gif](https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/4023317b-0b2d-41a3-8155-c4862eb43846)
+
+## 全屏预览 (并排布局)
+![11](https://github.com/zanllp/sd-webui-infinite-image-browsing/assets/25872019/ee941bfc-0c1b-4777-91df-115435cc8542)
 
 ## 全屏预览
 <img width="1024" alt="image" src="https://user-images.githubusercontent.com/25872019/232167416-32a8b19d-b766-4f98-88f6-a1d48eaebec0.png">
@@ -143,5 +158,84 @@ https://user-images.githubusercontent.com/25872019/230768207-daab786b-d4ab-489f-
 ### 深色模式
 
 <img width="768" alt="image" src="https://user-images.githubusercontent.com/25872019/230064879-c95866ac-999d-4d4b-87ea-3e38c8479415.png">
+
+## 自然语言分类&搜索（实验性）
+
+这个功能用于把图片按**提示词语义相似度**自动分组（主题），并支持用一句自然语言做**语义检索**（类似 RAG 的召回阶段）。  
+它是实验性功能：效果强依赖模型与提示词质量，适合快速找回/整理生成图片。
+
+### 使用方式（面向使用者）
+
+1. 打开首页「**自然语言分类&搜索（实验性）**」
+2. 点击「范围」选择要处理的文件夹（可多选，来源于 QuickMovePaths）
+3. **归类**：点「刷新」会在所选范围内生成主题列表（标题会按前端语言输出）
+4. **搜索**：输入一句话点「搜索」，会自动打开结果页（TopK 相似图片）
+
+> 选择的范围会持久化到后端 KV（`app_fe_setting["topic_search_scope"]`），下次打开会自动恢复并自动刷新一次结果。
+
+### 接口（给高级用户/二次开发）
+
+- **构建/刷新向量**：`POST /infinite_image_browsing/db/build_iib_output_embeddings`
+  - 入参：`folder`, `model`, `force`, `batch_size`, `max_chars`
+- **归类（聚类）**：`POST /infinite_image_browsing/db/cluster_iib_output_job_start`，然后轮询 `GET /infinite_image_browsing/db/cluster_iib_output_job_status?job_id=...`
+  - 入参：`folder_paths`（必填，数组）、`threshold`, `min_cluster_size`, `force_embed`, `title_model`, `force_title`, `use_title_cache`, `assign_noise_threshold`, `lang`
+- **语义检索（RAG 召回）**：`POST /infinite_image_browsing/db/search_iib_output_by_prompt`
+  - 入参：`query`, `folder_paths`（必填，数组）、`top_k`, `min_score`, `ensure_embed`, `model`, `max_chars`
+
+### 原理（简单版）
+
+- **1）提示词抽取与清洗**
+  - 从 `image.exif` 中抽取提示词文本（只取 `Negative prompt:` 之前）
+  - 可选做“语义清洗”：去掉无意义的高频模板词（画质/摄影参数等），更聚焦主题语义（见 `IIB_PROMPT_NORMALIZE*`）
+- **2）向量化（Embedding）**
+  - 调用 OpenAI 兼容的 `/embeddings` 得到向量
+  - 写入 SQLite 表 `image_embedding`（增量更新，避免重复花费）
+- **3）主题聚类**
+  - 用“簇向量求和方向”的增量聚类（近似在线聚类），再把高相似簇做一次合并（减少同主题被切碎）
+  - 可选把小簇成员重新分配到最相近的大簇，降低噪声
+- **4）主题命名（LLM）**
+  - 对每个簇取代表提示词样本，调用 `/chat/completions` 生成短标题与关键词
+  - 通过 tool/function calling 强制结构化输出（JSON），并写入 `topic_title_cache`
+- **5）语义检索**
+  - 把用户 query 向量化，然后和范围内所有图片向量做余弦相似度排序，返回 TopK
+
+### 缓存与增量更新
+
+#### 1）向量缓存（`image_embedding`）
+
+- **存储位置**：SQLite 表 `image_embedding`（以 `image_id` 为主键）
+- **增量跳过条件**：满足以下条件则跳过重新向量化：
+  - `model` 相同
+  - `text_hash` 相同
+  - 已存在 `vec`
+- **“重新向量化”的缓存键**：`text_hash = sha256(f"{normalize_version}:{prompt_text}")`
+  - `prompt_text`：用于 embedding 的最终文本（抽取 + 可选清洗）
+  - `normalize_version`：由代码对清洗规则/模式计算出的**指纹**（不允许用户用环境变量手动覆盖）
+- **强制刷新**：在 `build_iib_output_embeddings` 传 `force=true`，或在 `cluster_iib_output_job_start` 传 `force_embed=true`
+
+#### 2）标题缓存（`topic_title_cache`）
+
+- **存储位置**：SQLite 表 `topic_title_cache`（主键 `cluster_hash`）
+- **命中条件**：`use_title_cache=true` 且 `force_title=false` 时复用历史标题/关键词
+- **缓存键 `cluster_hash` 包含**：
+  - 成员图片 id（排序后）
+  - embedding `model`、`threshold`、`min_cluster_size`
+  - `title_model`、输出语言 `lang`
+  - 语义清洗指纹（`normalize_version`）与清洗模式
+- **强制重新生成标题**：`force_title=true`
+
+### 配置（环境变量）
+
+所有 AI 调用都基于 **OpenAI 兼容** 的服务：
+
+- **`OPENAI_BASE_URL`**：例如 `https://your-host/v1`
+- **`OPENAI_API_KEY`**：你的 Key
+- **`EMBEDDING_MODEL`**：用于聚类的 embedding 模型
+- **`AI_MODEL`**：默认 chat 模型（兜底默认）
+- **`TOPIC_TITLE_MODEL`**：用于主题标题的 chat 模型（不配则回退到 `AI_MODEL`）
+- **`IIB_PROMPT_NORMALIZE`**：`1/0` 是否开启提示词清洗
+- **`IIB_PROMPT_NORMALIZE_MODE`**：`balanced`（推荐）/ `theme_only`（更激进）
+
+> 注意：AI 调用**没有 mock 兜底**。只要服务端/模型返回异常或不符合约束，就会直接报错，避免产生“看似能跑但其实不可信”的结果。
 
 

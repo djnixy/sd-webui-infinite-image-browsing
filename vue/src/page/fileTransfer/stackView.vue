@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DownOutlined, LeftCircleOutlined, RightCircleOutlined } from '@/icon'
+import { DownOutlined, LeftCircleOutlined, RightCircleOutlined, ArrowLeftOutlined } from '@/icon'
 import { useGlobalStore } from '@/store/useGlobalStore'
 import {
   useFileTransfer,
@@ -9,10 +9,14 @@ import {
   usePreview,
   useFileItemActions,
   useMobileOptimization,
-  stackCache
+  stackCache,
+  useKeepMultiSelect,
+  Props,
+  useGenInfoDiff
 } from './hook'
 import { SearchSelect } from 'vue3-ts-util'
 import { toRawFileUrl } from '@/util/file'
+import { openTiktokViewWithFiles } from '@/util/tiktokHelper'
 
 import 'multi-nprogress/nprogress.css'
 // @ts-ignore
@@ -26,6 +30,7 @@ import { copy2clipboardI18n } from '@/util'
 import { openFolder } from '@/api'
 import { sortMethods } from './fileSort'
 import { isTauri } from '@/util/env'
+import MultiSelectKeep from '@/components/MultiSelectKeep.vue'
 
 const global = useGlobalStore()
 const props = defineProps<{
@@ -35,7 +40,7 @@ const props = defineProps<{
    * 初始打开路径
    */
   path?: string
-  walkModePath?: string
+  mode?: Props['mode']
   /**
    * 页面栈,跳过不必要的api请求
    */
@@ -49,9 +54,9 @@ const {
   spinning
 } = useHookShareState().toRefs()
 const { currLocation, currPage, refresh, copyLocation, back, openNext, stack, quickMoveTo,
-  addToSearchScanPathAndQuickMove, searchPathInfo, locInputValue, isLocationEditing,
+  addToSearchScanPathAndQuickMove, locInputValue, isLocationEditing,
   onLocEditEnter, onEditBtnClick, share, selectAll, onCreateFloderBtnClick, onWalkBtnClick,
-  showWalkButton, searchInCurrentDir
+  showWalkButton, searchInCurrentDir, backToLastUseTo, polling, onPollRefreshClick
 } = useLocation()
 const {
   gridItems,
@@ -64,12 +69,24 @@ const {
   loadNextDirLoading,
   canLoadNext,
   onScroll,
-  cellWidth
+  cellWidth,
+  dirCoverCache
 } = useFilesDisplay()
 const { onDrop, onFileDragStart, onFileDragEnd } = useFileTransfer()
 const { onFileItemClick, onContextMenuClick, showGenInfo, imageGenInfo, q } = useFileItemActions({ openNext })
 const { previewIdx, onPreviewVisibleChange, previewing, previewImgMove, canPreview } = usePreview()
 const { showMenuIdx } = useMobileOptimization()
+const { onClearAllSelected, onReverseSelect, onSelectAll } = useKeepMultiSelect()
+const { getGenDiff, changeIndchecked, seedChangeChecked, getRawGenParams, getGenDiffWatchDep } = useGenInfoDiff()
+
+// TikTok View 按钮点击处理
+const onTiktokViewClick = () => {
+  if (sortedFiles.value.length === 0) {
+    return
+  }
+  // 只传入图片和视频文件，从当前预览索引开始
+  openTiktokViewWithFiles(sortedFiles.value, previewIdx.value || 0)
+}
 
 watch(
   () => props,
@@ -84,10 +101,12 @@ watch(
 )
 
 
-
 </script>
 <template>
   <ASpin :spinning="spinning" size="large">
+    <MultiSelectKeep :show="global.keepMultiSelect || !!multiSelectedIdxs.length"
+       @clear-all-selected="onClearAllSelected" @select-all="onSelectAll"
+      @reverse-select="onReverseSelect" />
     <ASelect style="display: none"></ASelect>
 
     <div ref="stackViewEl" @dragover.prevent @drop.prevent="onDrop($event)" class="container">
@@ -108,33 +127,27 @@ watch(
         </ASkeleton>
       </AModal>
       <div class="location-bar">
-        <div v-if="props.walkModePath" class="breadcrumb">
-          <a-tooltip>
-            <template #title>{{ $t('walk-mode-move-message') }}</template><a-breadcrumb style="flex: 1">
-              <a-breadcrumb-item v-for="(item, idx) in stack" :key="idx">
-                <span>{{ item.curr === '/' ? $t('root') : item.curr.replace(/:\/$/, $t('drive')) }}</span>
-              </a-breadcrumb-item>
-            </a-breadcrumb>
-          </a-tooltip>
-        </div>
-        <div class="breadcrumb" :style="{ flex: isLocationEditing ? 1 : '' }" v-else>
+        <div class="breadcrumb" :style="{ flex: isLocationEditing ? 1 : '' }" >
           <AInput v-if="isLocationEditing" style="flex: 1" v-model:value="locInputValue" @click.stop @keydown.stop
             @press-enter="onLocEditEnter" allow-clear></AInput>
           <a-breadcrumb style="flex: 1" v-else>
             <a-breadcrumb-item v-for="(item, idx) in stack" :key="idx">
               <a @click.prevent="back(idx)">{{ item.curr === '/' ? $t('root') : item.curr.replace(/:\/$/, $t('drive'))
-              }}</a>
+                }}</a>
             </a-breadcrumb-item>
           </a-breadcrumb>
 
           <AButton size="small" v-if="isLocationEditing" @click="onLocEditEnter" type="primary">{{ $t('go') }}</AButton>
           <div v-else class="location-act">
+            <a @click.prevent="backToLastUseTo" style="margin: 0 8px 16px 0;" v-if="mode === 'scanned-fixed'"><ArrowLeftOutlined /></a>
             <a @click.prevent="copyLocation" class="copy">{{ $t('copy') }}</a>
             <a @click.prevent.stop="onEditBtnClick">{{ $t('edit') }}</a>
           </div>
         </div>
         <div class="actions">
           <a class="opt" @click.prevent="refresh"> {{ $t('refresh') }} </a>
+          <a class="opt" @click.prevent="onPollRefreshClick"> {{ polling ? $t('stopPollRefresh') : $t('pollRefresh')  }} </a>
+          <a class="opt" @click.prevent="onTiktokViewClick">{{ $t('TikTok View') }}</a>
           <a-dropdown>
             <a class="opt" @click.prevent>
               {{ $t('search') }}
@@ -182,20 +195,25 @@ watch(
                     border: 1px solid var(--zp-secondary-background);
                   ">
                 <a-form v-bind="{
-                  labelCol: { span: 6 },
-                  wrapperCol: { span: 18 }
+                  labelCol: { span: 10 },
+                  wrapperCol: { span: 14 }
                 }">
                   <a-form-item :label="$t('gridCellWidth')">
-                    <numInput v-model="cellWidth" :max="1024" :min="64" :step="64" />
+                    <numInput v-model="cellWidth" :max="1024" :min="64" :step="16" />
                   </a-form-item>
                   <a-form-item :label="$t('sortingMethod')">
-                    <search-select v-model:value="sortMethod" @click.stop :conv="sortMethodConv" :options="sortMethods" />
+                    <search-select v-model:value="sortMethod" @click.stop :conv="sortMethodConv"
+                      :options="sortMethods" />
+                  </a-form-item>
+                  <a-form-item :label="$t('showChangeIndicators')">
+                    <a-switch v-model:checked="changeIndchecked" @click="getRawGenParams" />
+                  </a-form-item>
+                  <a-form-item :label="$t('seedAsChange')">
+                    <a-switch v-model:checked="seedChangeChecked" :disabled="!changeIndchecked" />
                   </a-form-item>
                   <div style="padding: 4px;">
-                    <a @click.prevent="addToSearchScanPathAndQuickMove" v-if="!searchPathInfo">{{
-                      $t('addToSearchScanPathAndQuickMove') }}</a>
-                    <a @click.prevent="addToSearchScanPathAndQuickMove" v-else-if="searchPathInfo.can_delete">{{
-                      $t('removeFromSearchScanPathAndQuickMove') }}</a>
+                    <a @click.prevent="addToSearchScanPathAndQuickMove" >{{
+    $t('addToSearchScanPathAndQuickMove') }}</a>
                   </div>
                   <div style="padding: 4px;">
                     <a @click.prevent="openFolder(currLocation + '/')">{{ $t('openWithLocalFileBrowser') }}</a>
@@ -211,7 +229,8 @@ watch(
       </div>
       <div v-if="currPage" class="view">
         <RecycleScroller class="file-list" :items="sortedFiles" ref="scroller" @scroll="onScroll"
-          :item-size="itemSize.first" key-field="fullpath" :item-secondary-size="itemSize.second" :gridItems="gridItems">
+          :item-size="itemSize.first" key-field="fullpath" :item-secondary-size="itemSize.second"
+          :gridItems="gridItems">
           <template v-slot="{ item: file, index: idx }">
             <!-- idx 和file有可能丢失 -->
             <file-item :idx="parseInt(idx)" :file="file"
@@ -219,16 +238,23 @@ watch(
               v-model:show-menu-idx="showMenuIdx" :selected="multiSelectedIdxs.includes(idx)" :cell-width="cellWidth"
               @file-item-click="onFileItemClick" @dragstart="onFileDragStart" @dragend="onFileDragEnd"
               @preview-visible-change="onPreviewVisibleChange" @context-menu-click="onContextMenuClick"
-              :is-selected-mutil-files="multiSelectedIdxs.length > 1" />
+              @tiktok-view="(_file, idx) => openTiktokViewWithFiles(sortedFiles, idx)"
+              :is-selected-mutil-files="multiSelectedIdxs.length > 1"
+              :enable-change-indicator="changeIndchecked"
+              :seed-change-checked="seedChangeChecked"
+              :get-gen-diff="getGenDiff"
+              :get-gen-diff-watch-dep="getGenDiffWatchDep"
+              :previewing="previewing"
+              :cover-files="dirCoverCache.get(file.fullpath)"/>
           </template>
-          <template  #after>
-            <div style="padding: 16px 0 64px;">
-              <AButton v-if="props.walkModePath" @click="loadNextDir" :loading="loadNextDirLoading" block type="primary" :disabled="!canLoadNext"
-                ghost>
+          <template #after>
+            <div style="padding: 16px 0 512px;">
+              <AButton v-if="props.mode === 'walk'" @click="loadNextDir" :loading="loadNextDirLoading" block type="primary"
+                :disabled="!canLoadNext" ghost>
                 {{ $t('loadNextPage') }}</AButton>
             </div>
           </template>
-          
+
         </RecycleScroller>
         <div v-if="previewing" class="preview-switch">
           <LeftCircleOutlined @click="previewImgMove('prev')" :class="{ disable: !canPreview('prev') }" />
@@ -238,36 +264,10 @@ watch(
     </div>
     <fullScreenContextMenu v-if="previewing" :file="sortedFiles[previewIdx]" :idx="previewIdx"
       @context-menu-click="onContextMenuClick" />
-    <BaseFileListInfo :file-num="sortedFiles.length" :selected-file-num="multiSelectedIdxs.length"/>
+    <BaseFileListInfo :file-num="sortedFiles.length" :selected-file-num="multiSelectedIdxs.length" />
   </ASpin>
 </template>
 <style lang="scss" scoped>
-.preview-switch {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 11111;
-  pointer-events: none;
-
-  &>* {
-    color: white;
-    margin: 16px;
-    font-size: 4em;
-    pointer-events: all;
-    cursor: pointer;
-
-    &.disable {
-      opacity: 0;
-      pointer-events: none;
-      cursor: none;
-    }
-  }
-}
 
 .location-act {
   margin-left: 8px;
@@ -280,7 +280,8 @@ watch(
     display: flex;
     flex-direction: column;
 
-    &>*, .copy {
+    &>*,
+    .copy {
       margin: 2px;
     }
   }
@@ -296,6 +297,7 @@ watch(
 
   @media (max-width: 768px) {
     width: 100%;
+
     .ant-breadcrumb>* {
       display: inline-block;
     }
@@ -364,4 +366,5 @@ watch(
   border: 4px;
   background: var(--zp-secondary-background);
   border: 1px solid var(--zp-border);
-}</style>
+}
+</style>

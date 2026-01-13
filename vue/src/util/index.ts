@@ -1,8 +1,12 @@
 import { t } from '@/i18n'
 import { message } from 'ant-design-vue'
 import { reactive } from 'vue'
-import { FetchQueue, idKey, typedEventEmitter, type UniqueId } from 'vue3-ts-util'
+
+import { Modal } from 'ant-design-vue'
+import { FetchQueue, idKey, typedEventEmitter, type UniqueId} from 'vue3-ts-util'
+import { useLocalStorage } from '@vueuse/core'
 export * from './file'
+import { prefix } from './const'
 
 export const parentWindow = () => {
   return parent.window as any as Window & {
@@ -31,7 +35,7 @@ export const getTabIdxInSDWebui = () => {
   return Array.from(tabList).findIndex((v) => v.id.includes('infinite-image-browsing'))
 }
 
-export const switch2IBB = () => {
+export const switch2IIB = () => {
   try {
     gradioApp().querySelector('#tabs')!.querySelectorAll('button')[getTabIdxInSDWebui()].click()
   } catch (error) {
@@ -91,7 +95,7 @@ export const copy2clipboardI18n = async (text: string, msg?: string) => {
     }
     message.success(msg ?? t('copied'))
   } catch (error) {
-    message.error("copy failed. maybe it's non-secure environment")
+    message.error('copy failed. maybe it\'s non-secure environment')
   }
 }
 
@@ -100,6 +104,8 @@ export const { useEventListen: useGlobalEventListen, eventEmitter: globalEvents 
     returnToIIB(): void
     updateGlobalSetting(): void
     searchIndexExpired(): void
+    closeTabPane(tabIdx: number, key: string): void
+    updateGlobalSettingDone(): void
   }>()
 
 type AsyncFunction<T> = (...args: any[]) => Promise<T>
@@ -165,4 +171,46 @@ export const safeJsonParse = <T>(str: string) => {
   } catch (error) {
     return null
   }
+}
+
+
+export const formatDuration = (duration: number) => {
+  if (duration >= 3600) {
+    const hour = Math.floor(duration / 3600);
+    const min = Math.floor((duration % 3600) / 60);
+    const sec = duration % 60;
+    return `${hour}:${min.toString().padStart(2, '0')}:${sec.toFixed(0).padStart(2, '0')}`;
+  } else {
+    const min = Math.floor(duration / 60);
+    const sec = duration % 60;
+    return `${min}:${sec.toFixed(0).padStart(2, '0')}`;
+  }
+}
+
+
+export function unescapeHtml (string: string) {
+  return `${string}`
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"',)
+    .replace(/&#39;/g, '\'')
+}
+
+
+export const actionConfirm = <T extends (...args: any[]) => void> (fn: T, msg ?: string) => {
+  if (!msg) {
+    msg = t('confirmThisAction')
+  }
+  return (...args: Parameters<T>) => Modal.confirm({ content: msg, onOk: () => fn(...args) })
+}
+
+export const settingSyncKey = prefix + 'sync'
+export const isSync = () => {
+  const r = localStorage.getItem(settingSyncKey)
+  return r === 'true' || r === null
+}
+export const useSettingSync = () => {
+  const sync = useLocalStorage(settingSyncKey, true)
+  return sync
 }
